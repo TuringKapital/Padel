@@ -1,0 +1,38 @@
+name: Scrape Padel Occupancy
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # Every 5 minutes (GitHub Actions minimum)
+  workflow_dispatch:          # Allows manual trigger from GitHub UI
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install playwright
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: Run scraper
+        run: python scraper.py
+
+      - name: Commit and push new data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/occupancy.csv
+          git diff --staged --quiet || git commit -m "data: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          git push
