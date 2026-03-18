@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Padel Beach — Occupancy Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
+<style>
+  :root {
+    --bg:      #0e0e0f;
+    --surface: #161618;
+    --card:    #1c1c1f;
+    --border:  rgba(255,255,255,0.07);
+    --muted:   rgba(255,255,255,0.35);
+    --text:    #f0eee8;
+    --accent1: #3fbb89;
+    --accent2: #f5a623;
+    --accent3: #e05c5c;
+    --font:    'DM Mono', 'Fira Mono', monospace;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+  .shell { max-width: 1080px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 2.5rem; border-bottom: 0.5px solid var(--border); padding-bottom: 1.25rem;
+  }
+  .logo { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; }
+  #last-update { font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
+
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 2rem; }
+  .stat-card {
+    background: var(--card); border: 0.5px solid var(--border); border-radius: 10px;
+    padding: 1rem 1.125rem; position: relative; overflow: hidden;
+  }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    border-radius: 10px 10px 0 0; background: var(--accent); opacity: 0.8;
+  }
+  .stat-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .stat-value { font-size: 26px; font-weight: 500; letter-spacing: -0.03em; color: var(--accent); }
+  .stat-sub { font-size: 10px; color: var(--muted); margin-top: 4px; }
+
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin: 2rem 0 1rem; }
+  .section-title { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+
+  .date-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1.5rem; }
+  .date-tab {
+    padding: 5px 12px; font-family: var(--font); font-size: 11px; letter-spacing: 0.08em;
+    border: 0.5px solid var(--border); border-radius: 6px; background: transparent;
+    color: var(--muted); cursor: pointer; transition: all 0.15s;
+  }
+  .date-tab:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+  .date-tab.active { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.25); color: var(--text); }
+
+  .chart-card { background: var(--card); border: 0.5px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .chart-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); margin-bottom: 1rem; }
+  .chart-wrap { position: relative; height: 220px; }
+
+  .heatmap-grid { display: grid; gap: 6px; align-items: center; font-size: 10px; color: var(--muted); }
+  .heatmap-cell {
+    height: 36px; border-radius: 5px; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 500; letter-spacing: 0.04em; transition: transform 0.12s; cursor: default;
+  }
+  .heatmap-cell:hover { transform: scale(1.05); }
+  .heatmap-date { font-size: 9px; text-align: center; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+  .court-label { font-size: 10px; letter-spacing: 0.08em; color: var(--muted); text-align: right; padding-right: 10px; white-space: nowrap; }
+
+  .legend { display: flex; gap: 18px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  #status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; letter-spacing: 0.1em; color: var(--muted); text-transform: uppercase; }
+  #status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  #status-dot.live { background: var(--accent1); box-shadow: 0 0 0 3px rgba(63,187,137,0.2); }
+  #status-dot.err  { background: var(--accent3); }
+
+  .empty { text-align: center; padding: 3rem; color: var(--muted); font-size: 13px; border: 0.5px dashed var(--border); border-radius: 10px; }
+  .empty code { display: block; margin-top: 0.75rem; font-size: 11px; opacity: 0.6; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <div>
+      <div class="logo">Padel Beach Leopoldina</div>
+      <h1>Court Occupancy</h1>
+    </div>
+    <div style="text-align:right">
+      <div id="status-badge"><span id="status-dot"></span><span id="status-text">loading…</span></div>
+      <div id="last-update" style="margin-top:5px">—</div>
+    </div>
+  </header>
+
+  <div class="stats-row">
+    <div class="stat-card" style="--accent: var(--accent1)">
+      <div class="stat-label">Court 1 · Today</div>
+      <div class="stat-value" id="s1">—</div>
+      <div class="stat-sub" id="s1-sub">no data yet</div>
+    </div>
+    <div class="stat-card" style="--accent: var(--accent2)">
+      <div class="stat-label">Court 2 · Today</div>
+      <div class="stat-value" id="s2">—</div>
+      <div class="stat-sub" id="s2-sub">no data yet</div>
+    </div>
+    <div class="stat-card" style="--accent: var(--accent3)">
+      <div class="stat-label">Court 3 · Today</div>
+      <div class="stat-value" id="s3">—</div>
+      <div class="stat-sub" id="s3-sub">no data yet</div>
+    </div>
+    <div class="stat-card" style="--accent: rgba(255,255,255,0.3)">
+      <div class="stat-label">Total snapshots</div>
+      <div class="stat-value" id="s-snaps" style="color: var(--text)">—</div>
+      <div class="stat-sub">since tracking began</div>
+    </div>
+  </div>
+
+  <div class="section-header">
+    <span class="section-title">7-Day Occupancy Heatmap</span>
+    <span style="font-size:10px;color:var(--muted)">avg % booked per court per day</span>
+  </div>
+  <div class="chart-card">
+    <div id="heatmap-container"><div class="empty">Loading data…</div></div>
+  </div>
+
+  <div class="section-header"><span class="section-title">Occupancy Over Time</span></div>
+  <div class="legend">
+    <div class="legend-item"><span class="legend-dot" style="background:var(--accent1)"></span>Court 1</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--accent2)"></span>Court 2</div>
+    <div class="legend-item"><span class="legend-dot" style="background:var(--accent3)"></span>Court 3</div>
+  </div>
+  <div class="date-tabs" id="date-tabs"></div>
+  <div class="chart-card">
+    <div class="chart-label" id="chart-label">Select a date above</div>
+    <div class="chart-wrap"><canvas id="ts-chart"></canvas></div>
+  </div>
+
+</div>
+
+<script>
+// ── CONFIG: update GITHUB_RAW_URL to point to your repo ──────────────────────
+// Format: https://raw.githubusercontent.com/USERNAME/REPO/main/data/occupancy.csv
+const GITHUB_RAW_URL = 'https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/data/occupancy.csv';
+
+const COLORS = { 1: '#3fbb89', 2: '#f5a623', 3: '#e05c5c' };
+let tsChart = null;
+let selectedDate = null;
+let allRows = [];
+
+// ── CSV parser ────────────────────────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',');
+  return lines.slice(1).map(line => {
+    const vals = line.split(',');
+    return Object.fromEntries(headers.map((h, i) => [h.trim(), vals[i]?.trim()]));
+  }).filter(r => r.captured_at);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmt = v => v != null ? parseFloat(v).toFixed(1) + '%' : '—';
+const today = () => new Date().toISOString().slice(0, 10);
+
+function shortDate(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  return d.toLocaleDateString('pt-BR', { weekday: 'short', month: 'numeric', day: 'numeric' });
+}
+function shortTime(isoUtc) {
+  return new Date(isoUtc).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+}
+
+function heatColor(pct) {
+  if (pct == null) return 'rgba(255,255,255,0.04)';
+  const stops = [[0,[28,28,32]],[30,[40,80,70]],[60,[80,120,80]],[80,[200,140,50]],[100,[224,92,92]]];
+  const v = Math.max(0, Math.min(100, pct));
+  for (let i = 1; i < stops.length; i++) {
+    const [p0,c0] = stops[i-1], [p1,c1] = stops[i];
+    if (v <= p1) {
+      const t = (v-p0)/(p1-p0);
+      return `rgb(${Math.round(c0[0]+t*(c1[0]-c0[0]))},${Math.round(c0[1]+t*(c1[1]-c0[1]))},${Math.round(c0[2]+t*(c1[2]-c0[2]))})`;
+    }
+  }
+  return 'rgb(224,92,92)';
+}
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+function updateStats(rows) {
+  const t = today();
+  [1,2,3].forEach(c => {
+    const todayRows = rows.filter(r => r.court_id === String(c) && r.court_date === t);
+    const latest = todayRows.at(-1);
+    const el  = document.getElementById('s' + c);
+    const sub = document.getElementById('s' + c + '-sub');
+    if (latest) {
+      el.textContent  = fmt(latest.pct_booked);
+      sub.textContent = `${latest.booked_slots}/${latest.total_slots} slots · ${shortTime(latest.captured_at)}`;
+    }
+  });
+  document.getElementById('s-snaps').textContent = rows.length;
+  const last = rows.at(-1)?.captured_at;
+  if (last) document.getElementById('last-update').textContent = 'Last: ' + shortTime(last);
+}
+
+// ── Heatmap ───────────────────────────────────────────────────────────────────
+function buildHeatmap(rows) {
+  const container = document.getElementById('heatmap-container');
+  if (!rows.length) { container.innerHTML = '<div class="empty">No data yet.</div>'; return; }
+
+  const dates  = [...new Set(rows.map(r => r.court_date))].sort();
+  const courts = [1,2,3];
+
+  // Compute avg pct per court × date
+  const map = {};
+  courts.forEach(c => { map[c] = {}; dates.forEach(d => { map[c][d] = null; }); });
+  const buckets = {};
+  rows.forEach(r => {
+    const key = `${r.court_id}_${r.court_date}`;
+    if (!buckets[key]) buckets[key] = [];
+    buckets[key].push(parseFloat(r.pct_booked));
+  });
+  Object.entries(buckets).forEach(([key, vals]) => {
+    const [cid, date] = key.split('_');
+    map[parseInt(cid)][date] = vals.reduce((a,b) => a+b, 0) / vals.length;
+  });
+
+  const cols = `auto ${dates.map(() => '1fr').join(' ')}`;
+  let html = `<div class="heatmap-grid" style="grid-template-columns:${cols}"><div></div>`;
+  dates.forEach(d => { html += `<div class="heatmap-date">${shortDate(d)}</div>`; });
+
+  courts.forEach(c => {
+    const courtColors = { 1: 'var(--accent1)', 2: 'var(--accent2)', 3: 'var(--accent3)' };
+    html += `<div class="court-label" style="color:${courtColors[c]}">Court ${c}</div>`;
+    dates.forEach(d => {
+      const pct = map[c][d];
+      const bg  = heatColor(pct);
+      const txt = pct != null ? pct.toFixed(0) + '%' : '—';
+      const tc  = (pct ?? 0) > 50 ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)';
+      html += `<div class="heatmap-cell" style="background:${bg};color:${tc}">${txt}</div>`;
+    });
+  });
+
+  container.innerHTML = html + '</div>';
+}
+
+// ── Date tabs ─────────────────────────────────────────────────────────────────
+function buildDateTabs(rows) {
+  const dates  = [...new Set(rows.map(r => r.court_date))].sort();
+  const tabsEl = document.getElementById('date-tabs');
+  if (!dates.length) { tabsEl.innerHTML = '<span style="font-size:11px;color:var(--muted)">no dates yet</span>'; return; }
+
+  if (!selectedDate || !dates.includes(selectedDate))
+    selectedDate = dates.includes(today()) ? today() : dates[0];
+
+  tabsEl.innerHTML = dates.map(d =>
+    `<button class="date-tab${d === selectedDate ? ' active' : ''}" data-date="${d}">${shortDate(d)}</button>`
+  ).join('');
+
+  tabsEl.querySelectorAll('.date-tab').forEach(btn =>
+    btn.addEventListener('click', () => {
+      selectedDate = btn.dataset.date;
+      tabsEl.querySelectorAll('.date-tab').forEach(b => b.classList.toggle('active', b === btn));
+      renderTimeSeries(allRows, selectedDate);
+    })
+  );
+}
+
+// ── Time-series ───────────────────────────────────────────────────────────────
+function renderTimeSeries(rows, date) {
+  document.getElementById('chart-label').textContent = shortDate(date);
+  const datasets = [1,2,3].map(c => ({
+    label: `Court ${c}`,
+    data: rows
+      .filter(r => r.court_id === String(c) && r.court_date === date)
+      .map(r => ({ x: new Date(r.captured_at), y: parseFloat(parseFloat(r.pct_booked).toFixed(1)) })),
+    borderColor: COLORS[c],
+    backgroundColor: COLORS[c] + '22',
+    borderWidth: 1.5,
+    pointRadius: 0,
+    pointHoverRadius: 4,
+    fill: true,
+    tension: 0.35,
+  }));
+
+  const ctx = document.getElementById('ts-chart').getContext('2d');
+  if (tsChart) tsChart.destroy();
+
+  tsChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1c1c1f',
+          borderColor: 'rgba(255,255,255,0.1)',
+          borderWidth: 0.5,
+          titleColor: 'rgba(255,255,255,0.5)',
+          bodyColor: '#f0eee8',
+          titleFont: { family: "'DM Mono',monospace", size: 10 },
+          bodyFont:  { family: "'DM Mono',monospace", size: 11 },
+          callbacks: {
+            title: items => new Date(items[0].parsed.x).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo' }),
+            label: item => ` Court ${item.datasetIndex+1}: ${item.parsed.y.toFixed(1)}%`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+          ticks: { color: 'rgba(255,255,255,0.3)', font: { family:"'DM Mono',monospace", size:9 }, maxTicksLimit: 12 },
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          border: { color: 'rgba(255,255,255,0.08)' },
+        },
+        y: {
+          min: 0, max: 100,
+          ticks: { color: 'rgba(255,255,255,0.3)', font: { family:"'DM Mono',monospace", size:9 }, callback: v => v + '%' },
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          border: { color: 'rgba(255,255,255,0.08)' },
+        }
+      }
+    }
+  });
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+async function loadAll() {
+  try {
+    const res  = await fetch(GITHUB_RAW_URL + '?t=' + Date.now()); // cache-bust
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    allRows = parseCSV(text);
+
+    document.getElementById('status-dot').className = 'live';
+    document.getElementById('status-text').textContent = 'live';
+
+    updateStats(allRows);
+    buildHeatmap(allRows);
+    buildDateTabs(allRows);
+    if (selectedDate) renderTimeSeries(allRows, selectedDate);
+
+  } catch (err) {
+    document.getElementById('status-dot').className = 'err';
+    document.getElementById('status-text').textContent = 'error loading data';
+    document.getElementById('heatmap-container').innerHTML =
+      `<div class="empty">Could not load CSV.<br><code>${err.message}</code><br><br>Update GITHUB_RAW_URL in dashboard.html</div>`;
+  }
+}
+
+loadAll();
+setInterval(loadAll, 5 * 60 * 1000); // refresh every 5 min
+</script>
+</body>
+</html>
