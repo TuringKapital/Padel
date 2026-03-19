@@ -67,9 +67,9 @@ async def scrape_date(page, target_date: datetime) -> list[dict]:
     except Exception:
         log.info("No cookie banner found, continuing")
 
-    # ── 3. Select location via JS ──────────────────────────────────────────────
+ # ── 3. Select location via JS (element is always hidden by jQuery UI) ──────
     try:
-        await page.wait_for_selector("#calendarios", timeout=15_000)
+        await page.wait_for_selector("#calendarios", state="attached", timeout=15_000)
         await page.evaluate("""
             (label) => {
                 const sel = document.querySelector('#calendarios');
