@@ -57,31 +57,42 @@ async def scrape_date(page, target_date: datetime) -> list[dict]:
     # ── 1. Navigate ────────────────────────────────────────────────────────────
     await page.goto(BASE_URL, wait_until="networkidle", timeout=30_000)
 
-    # ── 2. Select location ─────────────────────────────────────────────────────
+   # ── 2. Dismiss cookie banner if present ────────────────────────────────────
     try:
+        await page.click("#ctl00_ButtonPermitirNecesarios", timeout=5_000)
+        await page.wait_for_load_state("networkidle", timeout=5_000)
+        log.info("Cookie banner dismissed")
+    except Exception:
+        pass  # no banner, continue
+
+    # ── 3. Wait for location dropdown to be ready ──────────────────────────────
+    try:
+        await page.wait_for_selector("#calendarios", state="visible", timeout=15_000)
         await page.select_option("#calendarios", label=TARGET_LOCATION)
         await page.wait_for_load_state("networkidle", timeout=10_000)
         log.info("Location selected")
     except Exception as e:
         log.warning("Could not select location: %s", e)
 
-    # ── 3. Select date ─────────────────────────────────────────────────────────
+    # ── 4. Wait for date input to be ready then set date ───────────────────────
     try:
-        await page.fill("#fechaTabla", date_str)
+        await page.wait_for_selector("#fechaTabla", state="visible", timeout=15_000)
+        await page.triple_click("#fechaTabla")
+        await page.type("#fechaTabla", date_str, delay=50)
         await page.press("#fechaTabla", "Enter")
         await page.wait_for_load_state("networkidle", timeout=10_000)
         log.info("Date set to %s", date_str)
     except Exception as e:
         log.warning("Could not set date: %s", e)
 
-    # ── 4. Wait for SVG grid ───────────────────────────────────────────────────
+    # ── 5. Wait for SVG grid ───────────────────────────────────────────────────
     try:
         await page.wait_for_selector("svg#tablaReserva", timeout=10_000)
     except Exception:
         log.warning("SVG grid not found for %s — site may be offline", date_key)
         return []
 
-    # ── 5. Parse SVG via JS ────────────────────────────────────────────────────
+    # ── 6. Parse SVG via JS ────────────────────────────────────────────────────
     slot_data = await page.evaluate("""
         (slotHeightPx) => {
             const svg = document.querySelector('svg#tablaReserva');
