@@ -12,17 +12,17 @@ from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_URL        = "https://padelbeach-br.matchpoint.com.es/Booking/Grid.aspx"
-TARGET_LOCATION = "PADEL (LEOPOLDINA)"
-NUM_COURTS      = 3
-DAYS_AHEAD      = 7
-SLOT_HEIGHT_PX  = 35
-TOTAL_SLOTS     = 17
+BASE_URL          = "https://padelbeach-br.matchpoint.com.es/Booking/Grid.aspx"
+TARGET_LOCATION   = "PADEL (LEOPOLDINA)"
+NUM_COURTS        = 3
+DAYS_AHEAD        = 7
+SLOT_HEIGHT_PX    = 35
+TOTAL_SLOTS       = 17
 COURT_X_POSITIONS = [50, 150, 250]
-DATA_DIR        = Path(__file__).parent / "data"
-CSV_PATH        = DATA_DIR / "occupancy.csv"
-CSV_COLUMNS     = ["captured_at", "court_date", "court_id",
-                   "total_slots", "booked_slots", "pct_booked"]
+DATA_DIR          = Path(__file__).parent / "data"
+CSV_PATH          = DATA_DIR / "occupancy.csv"
+CSV_COLUMNS       = ["captured_at", "court_date", "court_id",
+                     "total_slots", "booked_slots", "pct_booked"]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,9 +47,9 @@ def append_rows(rows: list[dict]):
     log.info("Appended %d rows to %s", len(rows), CSV_PATH)
 
 
-# ── SVG parser (reused for every date) ───────────────────────────────────────
+# ── SVG parser ────────────────────────────────────────────────────────────────
 async def parse_svg(page, date_key: str, now_utc: str) -> list[dict]:
-   slot_data = await page.evaluate("""
+    slot_data = await page.evaluate("""
         ([courtXs, slotHeightPx]) => {
             const svg = document.querySelector('svg#tablaReserva');
             if (!svg) return { error: 'SVG not found', courts: [] };
@@ -82,7 +82,7 @@ async def parse_svg(page, date_key: str, now_utc: str) -> list[dict]:
             };
         }
     """, [COURT_X_POSITIONS, SLOT_HEIGHT_PX])
-  
+
     if slot_data.get("error"):
         log.warning("Parse error for %s: %s", date_key, slot_data["error"])
         return []
@@ -140,45 +140,4 @@ async def run():
                     const opt = Array.from(sel.options).find(o => o.text.trim() === label);
                     if (opt) {
                         sel.value = opt.value;
-                        sel.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                }
-            """, TARGET_LOCATION)
-            await page.wait_for_load_state("networkidle", timeout=10_000)
-            await page.wait_for_timeout(1_000)
-            log.info("Location selected")
-        except Exception as e:
-            log.warning("Could not select location: %s", e)
-
-        # ── Loop through all 7 dates ───────────────────────────────────────────
-        all_rows = []
-        for d in dates:
-            date_str = d.strftime("%d/%m/%Y")
-            date_key = d.strftime("%Y-%m-%d")
-            now_utc  = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-            try:
-                # Set the date
-                await page.click("#fechaTabla", click_count=3)
-                await page.type("#fechaTabla", date_str, delay=50)
-                await page.press("#fechaTabla", "Enter")
-                await page.wait_for_load_state("networkidle", timeout=10_000)
-                await page.wait_for_timeout(2_000)  # let SVG re-render
-                log.info("Date set to %s", date_str)
-
-                rows = await parse_svg(page, date_key, now_utc)
-                all_rows.extend(rows)
-            except PlaywrightTimeout:
-                log.error("Timeout on %s — skipping", date_key)
-            except Exception as e:
-                log.exception("Error on %s: %s", date_key, e)
-
-        await browser.close()
-
-    if all_rows:
-        append_rows(all_rows)
-    else:
-        log.warning("No rows collected")
-
-
-if __name__ == "__main__":
-    asyncio.run(run())
+                        sel.dispatchEven
