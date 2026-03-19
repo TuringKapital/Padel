@@ -48,17 +48,16 @@ def append_rows(rows: list[dict]):
 
 
 # ── JS snippets ───────────────────────────────────────────────────────────────
-JS_SELECT_LOCATION = """
-(label) => {
-    const sel = document.querySelector('#calendarios');
-    if (!sel) return false;
-    const opt = Array.from(sel.options).find(o => o.text.trim() === label);
-    if (opt) {
-        sel.value = opt.value;
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-        return true;
+JS_SET_DATE = """
+(dateStr) => {
+    const input = document.querySelector('#fechaTabla');
+    if (!input) return 'no input';
+    input.value = dateStr;
+    if (typeof dibujaTabla === 'function') {
+        dibujaTabla();
+        return 'dibujaTabla called';
     }
-    return false;
+    return 'dibujaTabla not found';
 }
 """
 
