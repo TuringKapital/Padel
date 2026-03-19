@@ -18,6 +18,7 @@ NUM_COURTS      = 3
 DAYS_AHEAD      = 7
 SLOT_HEIGHT_PX  = 35
 TOTAL_SLOTS     = 17
+COURT_X_POSITIONS = [50, 150, 250]
 DATA_DIR        = Path(__file__).parent / "data"
 CSV_PATH        = DATA_DIR / "occupancy.csv"
 CSV_COLUMNS     = ["captured_at", "court_date", "court_id",
@@ -48,19 +49,10 @@ def append_rows(rows: list[dict]):
 
 # ── SVG parser (reused for every date) ───────────────────────────────────────
 async def parse_svg(page, date_key: str, now_utc: str) -> list[dict]:
-    slot_data = await page.evaluate("""
-        (slotHeightPx) => {
+   slot_data = await page.evaluate("""
+        ([courtXs, slotHeightPx]) => {
             const svg = document.querySelector('svg#tablaReserva');
             if (!svg) return { error: 'SVG not found', courts: [] };
-
-            const ocupGroups = Array.from(svg.querySelectorAll('g[id^="ocupacion_"]'));
-            const courtXSet  = new Set();
-            ocupGroups.forEach(g => {
-                const rect = g.querySelector('rect');
-                if (rect) courtXSet.add(parseFloat(rect.getAttribute('x') || 0));
-            });
-            const courtXs = Array.from(courtXSet).sort((a, b) => a - b);
-            if (courtXs.length === 0) return { error: 'No court columns found', courts: [] };
 
             const tally = {};
             courtXs.forEach(x => { tally[x] = 0; });
@@ -89,8 +81,8 @@ async def parse_svg(page, date_key: str, now_utc: str) -> list[dict]:
                 }))
             };
         }
-    """, SLOT_HEIGHT_PX)
-
+    """, [COURT_X_POSITIONS, SLOT_HEIGHT_PX])
+  
     if slot_data.get("error"):
         log.warning("Parse error for %s: %s", date_key, slot_data["error"])
         return []
