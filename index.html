@@ -176,7 +176,7 @@ function shortTime(isoUtc) {
 
 function heatColor(pct) {
   if (pct == null) return 'rgba(255,255,255,0.04)';
-  const stops = [[0,[28,28,32]],[30,[40,80,70]],[60,[80,120,80]],[80,[200,140,50]],[100,[224,92,92]]];
+  const stops = [[0,[224,92,92]],[30,[200,140,50]],[60,[80,120,80]],[80,[40,150,90]],[100,[63,187,137]]];
   const v = Math.max(0, Math.min(100, pct));
   for (let i = 1; i < stops.length; i++) {
     const [p0,c0] = stops[i-1], [p1,c1] = stops[i];
