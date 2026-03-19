@@ -157,6 +157,19 @@ function parseCSV(text) {
   const lines = text.trim().split('\n');
   const headers = lines[0].split(',');
   return lines.slice(1).map(line => {
+  const lines = text
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean);
+  if (!lines.length) return [];
+
+  const expectedHeaders = ['captured_at', 'court_date', 'court_id', 'total_slots', 'booked_slots', 'pct_booked'];
+  const firstCols = lines[0].split(',').map(c => c.trim());
+  const hasHeader = expectedHeaders.every((h, i) => firstCols[i] === h);
+  const headers = hasHeader ? firstCols : expectedHeaders;
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  return dataLines.map(line => {
     const vals = line.split(',');
     return Object.fromEntries(headers.map((h, i) => [h.trim(), vals[i]?.trim()]));
   }).filter(r => r.captured_at);
