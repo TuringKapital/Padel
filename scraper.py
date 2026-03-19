@@ -57,27 +57,36 @@ async def scrape_date(page, target_date: datetime) -> list[dict]:
     # ── 1. Navigate ────────────────────────────────────────────────────────────
     await page.goto(BASE_URL, wait_until="networkidle", timeout=30_000)
 
-   # ── 2. Dismiss cookie banner if present ────────────────────────────────────
+  # ── 2. Dismiss cookie banner if present ────────────────────────────────────
     try:
         await page.click("#ctl00_ButtonPermitirNecesarios", timeout=5_000)
         await page.wait_for_load_state("networkidle", timeout=5_000)
         log.info("Cookie banner dismissed")
     except Exception:
-        pass  # no banner, continue
+        pass
 
-    # ── 3. Wait for location dropdown to be ready ──────────────────────────────
+    # ── 3. Select location via JS (jQuery UI hides the real <select>) ──────────
     try:
-        await page.wait_for_selector("#calendarios", state="visible", timeout=15_000)
-        await page.select_option("#calendarios", label=TARGET_LOCATION)
+        await page.wait_for_selector("#calendarios", timeout=15_000)
+        await page.evaluate("""
+            (label) => {
+                const sel = document.querySelector('#calendarios');
+                const opt = Array.from(sel.options).find(o => o.text.trim() === label);
+                if (opt) {
+                    sel.value = opt.value;
+                    sel.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+        """, TARGET_LOCATION)
         await page.wait_for_load_state("networkidle", timeout=10_000)
         log.info("Location selected")
     except Exception as e:
         log.warning("Could not select location: %s", e)
 
-    # ── 4. Wait for date input to be ready then set date ───────────────────────
+    # ── 4. Set date ────────────────────────────────────────────────────────────
     try:
-        await page.wait_for_selector("#fechaTabla", state="visible", timeout=15_000)
-        await page.triple_click("#fechaTabla")
+        await page.wait_for_selector("#fechaTabla", timeout=15_000)
+        await page.click("#fechaTabla", click_count=3)
         await page.type("#fechaTabla", date_str, delay=50)
         await page.press("#fechaTabla", "Enter")
         await page.wait_for_load_state("networkidle", timeout=10_000)
