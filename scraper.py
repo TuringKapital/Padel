@@ -1,13 +1,12 @@
 """
 Padel Beach BR - Court Occupancy Scraper
+Parses the SVG-based booking grid at Matchpoint.
 Appends rows to data/occupancy.csv on each run.
-Designed to run via GitHub Actions every 5 minutes.
 """
 
 import asyncio
 import csv
 import logging
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -17,9 +16,12 @@ BASE_URL        = "https://padelbeach-br.matchpoint.com.es/Booking/Grid.aspx"
 TARGET_LOCATION = "Padel (Leopoldina)"
 NUM_COURTS      = 3
 DAYS_AHEAD      = 7
+SLOT_HEIGHT_PX  = 35      # 1 time slot = 35px in the SVG
+TOTAL_SLOTS     = 17      # 06:00–22:00 = 17 hourly slots per court
 DATA_DIR        = Path(__file__).parent / "data"
 CSV_PATH        = DATA_DIR / "occupancy.csv"
-CSV_COLUMNS     = ["captured_at", "court_date", "court_id", "total_slots", "booked_slots", "pct_booked"]
+CSV_COLUMNS     = ["captured_at", "court_date", "court_id",
+                   "total_slots", "booked_slots", "pct_booked"]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,118 +54,93 @@ async def scrape_date(page, target_date: datetime) -> list[dict]:
 
     log.info("Scraping %s", date_key)
 
+    # ── 1. Navigate ────────────────────────────────────────────────────────────
     await page.goto(BASE_URL, wait_until="networkidle", timeout=30_000)
 
-    # ── Select location ────────────────────────────────────────────────────────
-    location_selectors = [
-        "#ctl00_ContentPlaceHolder1_ddlLocation",
-        "#ddlLocation",
-        "select[id*='Location']",
-        "select[id*='location']",
-        "select[name*='Location']",
-    ]
-    for sel in location_selectors:
-        try:
-            if await page.locator(sel).count() > 0:
-                await page.select_option(sel, label=TARGET_LOCATION)
-                await page.wait_for_load_state("networkidle", timeout=10_000)
-                log.info("Location selected via %s", sel)
-                break
-        except Exception:
-            continue
+    # ── 2. Select location ─────────────────────────────────────────────────────
+    try:
+        await page.select_option("#calendarios", label=TARGET_LOCATION)
+        await page.wait_for_load_state("networkidle", timeout=10_000)
+        log.info("Location selected")
+    except Exception as e:
+        log.warning("Could not select location: %s", e)
 
-    # ── Select date ────────────────────────────────────────────────────────────
-    date_selectors = [
-        "#ctl00_ContentPlaceHolder1_txtDate",
-        "#txtDate",
-        "input[id*='Date']",
-        "input[id*='date']",
-    ]
-    date_set = False
-    for sel in date_selectors:
-        try:
-            if await page.locator(sel).count() > 0:
-                await page.fill(sel, date_str)
-                await page.press(sel, "Enter")
-                await page.wait_for_load_state("networkidle", timeout=10_000)
-                date_set = True
-                log.info("Date set via %s → %s", sel, date_str)
-                break
-        except Exception:
-            continue
+    # ── 3. Select date ─────────────────────────────────────────────────────────
+    try:
+        await page.fill("#fechaTabla", date_str)
+        await page.press("#fechaTabla", "Enter")
+        await page.wait_for_load_state("networkidle", timeout=10_000)
+        log.info("Date set to %s", date_str)
+    except Exception as e:
+        log.warning("Could not set date: %s", e)
 
-    if not date_set:
-        await page.goto(f"{BASE_URL}?date={date_key}", wait_until="networkidle", timeout=30_000)
+    # ── 4. Wait for SVG grid ───────────────────────────────────────────────────
+    try:
+        await page.wait_for_selector("svg#tablaReserva", timeout=10_000)
+    except Exception:
+        log.warning("SVG grid not found for %s — site may be offline", date_key)
+        return []
 
-    # ── Parse grid via JS ──────────────────────────────────────────────────────
+    # ── 5. Parse SVG via JS ────────────────────────────────────────────────────
     slot_data = await page.evaluate("""
-        () => {
-            // Booked slots show a time RANGE e.g. "08:00-09:00" with a colored bg.
-            // Free slots show a single time e.g. "08:00" with no background.
-            const TIME_RANGE  = /^\\d{2}:\\d{2}-\\d{2}:\\d{2}$/;
-            const TIME_SINGLE = /^\\d{2}:\\d{2}$/;
+        (slotHeightPx) => {
+            const svg = document.querySelector('svg#tablaReserva');
+            if (!svg) return { error: 'SVG not found', courts: [] };
 
-            const tables = Array.from(document.querySelectorAll('table'));
+            // Discover court x-positions from ocupacion groups
+            const ocupGroups = Array.from(svg.querySelectorAll('g[id^="ocupacion_"]'));
+            const courtXSet  = new Set();
+            ocupGroups.forEach(g => {
+                const rect = g.querySelector('rect');
+                if (rect) courtXSet.add(parseFloat(rect.getAttribute('x') || 0));
+            });
+            const courtXs = Array.from(courtXSet).sort((a, b) => a - b);
 
-            // Find the booking grid: contains time-range cells, not the datepicker
-            const grid = tables.find(t =>
-                !t.className.includes('ui-datepicker') &&
-                Array.from(t.querySelectorAll('td')).some(td =>
-                    TIME_RANGE.test(td.textContent.trim())
-                )
-            );
+            if (courtXs.length === 0) return { error: 'No court columns found', courts: [] };
 
-            if (!grid) return { error: 'booking grid not found', courts: [] };
+            // Initialise per-court booked slot tally
+            const tally = {};
+            courtXs.forEach(x => { tally[x] = 0; });
 
-            const rows = Array.from(grid.querySelectorAll('tr'));
-            if (rows.length < 2) return { error: 'too few rows', courts: [] };
-
-            const headerCols = rows[0].querySelectorAll('th,td');
-            const numCols    = headerCols.length;
-            const tallies    = Array.from({ length: numCols }, () => ({ total: 0, booked: 0 }));
-
-            for (let r = 1; r < rows.length; r++) {
-                const cells = rows[r].querySelectorAll('td');
-                cells.forEach((cell, c) => {
-                    if (c === 0) return; // skip time label column
-                    const text = cell.textContent.trim();
-                    const bg   = cell.style.backgroundColor;
-
-                    const isBooked = TIME_RANGE.test(text) ||
-                                     (bg && bg !== '' && bg !== 'transparent');
-                    const isFree   = TIME_SINGLE.test(text) && !isBooked;
-
-                    if (isBooked || isFree) {
-                        tallies[c].total++;
-                        if (isBooked) tallies[c].booked++;
-                    }
+            // Sum booked slots from event rects (height / slotHeightPx)
+            const events = Array.from(svg.querySelectorAll('g[id^="event_"]'));
+            events.forEach(e => {
+                const rect = e.querySelector('rect');
+                if (!rect) return;
+                const x = parseFloat(rect.getAttribute('x') || -1);
+                const h = parseFloat(rect.getAttribute('height') || 0);
+                // Find closest court x
+                let closest = null, minDist = Infinity;
+                courtXs.forEach(cx => {
+                    const d = Math.abs(x - cx);
+                    if (d < minDist) { minDist = d; closest = cx; }
                 });
-            }
+                if (closest !== null && minDist < 10) {
+                    tally[closest] += h / slotHeightPx;
+                }
+            });
 
-            const names = Array.from(headerCols).map(h => h.textContent.trim());
             return {
-                courts: tallies.slice(1).map((t, i) => ({
+                courts: courtXs.map((x, i) => ({
                     courtIndex: i + 1,
-                    courtName:  names[i + 1] || `Court ${i + 1}`,
-                    total:  t.total,
-                    booked: t.booked,
+                    x,
+                    bookedSlots: Math.round(tally[x] * 10) / 10,
                 }))
             };
         }
-    """)
+    """, SLOT_HEIGHT_PX)
 
     if slot_data.get("error"):
-        log.warning("JS parse error for %s: %s", date_key, slot_data["error"])
+        log.warning("Parse error for %s: %s", date_key, slot_data["error"])
         screenshot = Path(__file__).parent / f"debug_{date_key}.png"
         await page.screenshot(path=str(screenshot), full_page=True)
-        log.info("Debug screenshot: %s", screenshot)
         return []
 
     results = []
     for c in slot_data.get("courts", [])[:NUM_COURTS]:
-        total  = c["total"]
-        booked = c["booked"]
-        pct    = round(booked / total * 100, 2) if total > 0 else 0.0
+        booked = c["bookedSlots"]
+        total  = TOTAL_SLOTS
+        pct    = round(booked / total * 100, 2)
         results.append({
             "captured_at":  now_utc,
             "court_date":   date_key,
@@ -172,11 +149,13 @@ async def scrape_date(page, target_date: datetime) -> list[dict]:
             "booked_slots": booked,
             "pct_booked":   pct,
         })
-        log.info("  Court %d: %d/%d (%.1f%%)", c["courtIndex"], booked, total, pct)
+        log.info("  Court %d: %.1f/%d slots booked (%.1f%%)",
+                 c["courtIndex"], booked, total, pct)
 
     return results
 
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 async def run():
     ensure_csv()
     today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
