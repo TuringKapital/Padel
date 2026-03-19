@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Padel Beach — Occupancy Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-date-fns/3.0.0/chartjs-adapter-date-fns.bundle.min.js"></script>
 <style> 
   :root {
     --bg:      #0e0e0f;
@@ -273,11 +272,16 @@ function buildDateTabs(rows) {
 // ── Time-series ───────────────────────────────────────────────────────────────
 function renderTimeSeries(rows, date) {
   document.getElementById('chart-label').textContent = shortDate(date);
+
+  const dateRows = rows.filter(r => r.court_date === date);
+  const labels = [...new Set(dateRows.map(r => shortTime(r.captured_at)))];
+
   const datasets = [1,2,3].map(c => ({
     label: `Court ${c}`,
-    data: rows
-      .filter(r => r.court_id === String(c) && r.court_date === date)
-      .map(r => ({ x: new Date(r.captured_at), y: parseFloat(parseFloat(r.pct_booked).toFixed(1)) })),
+    data: labels.map(t => {
+      const row = dateRows.find(r => r.court_id === String(c) && shortTime(r.captured_at) === t);
+      return row ? parseFloat(parseFloat(row.pct_booked).toFixed(1)) : null;
+    }),
     borderColor: COLORS[c],
     backgroundColor: COLORS[c] + '22',
     borderWidth: 1.5,
@@ -285,6 +289,7 @@ function renderTimeSeries(rows, date) {
     pointHoverRadius: 4,
     fill: true,
     tension: 0.35,
+    spanGaps: true,
   }));
 
   const ctx = document.getElementById('ts-chart').getContext('2d');
@@ -292,7 +297,7 @@ function renderTimeSeries(rows, date) {
 
   tsChart = new Chart(ctx, {
     type: 'line',
-    data: { datasets },
+    data: { labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -305,25 +310,27 @@ function renderTimeSeries(rows, date) {
           borderWidth: 0.5,
           titleColor: 'rgba(255,255,255,0.5)',
           bodyColor: '#f0eee8',
-          titleFont: { family: "'DM Mono',monospace", size: 10 },
-          bodyFont:  { family: "'DM Mono',monospace", size: 11 },
+          titleFont: { family:"'DM Mono',monospace", size: 10 },
+          bodyFont:  { family:"'DM Mono',monospace", size: 11 },
           callbacks: {
-            title: items => new Date(items[0].parsed.x).toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit', timeZone:'America/Sao_Paulo' }),
-            label: item => ` Court ${item.datasetIndex+1}: ${item.parsed.y.toFixed(1)}%`,
+            label: item => ` Court ${item.datasetIndex+1}: ${item.parsed.y?.toFixed(1)}%`,
           }
         }
       },
       scales: {
         x: {
-          type: 'time',
-          time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
-          ticks: { color: 'rgba(255,255,255,0.3)', font: { family:"'DM Mono',monospace", size:9 }, maxTicksLimit: 12 },
+          ticks: {
+            color: 'rgba(255,255,255,0.3)',
+            font: { family:"'DM Mono',monospace", size: 9 },
+            maxTicksLimit: 12,
+            maxRotation: 0,
+          },
           grid: { color: 'rgba(255,255,255,0.05)' },
           border: { color: 'rgba(255,255,255,0.08)' },
         },
         y: {
           min: 0, max: 100,
-          ticks: { color: 'rgba(255,255,255,0.3)', font: { family:"'DM Mono',monospace", size:9 }, callback: v => v + '%' },
+          ticks: { color: 'rgba(255,255,255,0.3)', font: { family:"'DM Mono',monospace", size: 9 }, callback: v => v + '%' },
           grid: { color: 'rgba(255,255,255,0.05)' },
           border: { color: 'rgba(255,255,255,0.08)' },
         }
