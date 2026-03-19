@@ -176,17 +176,11 @@ function shortTime(isoUtc) {
 
 function heatColor(pct) {
   if (pct == null) return 'rgba(255,255,255,0.04)';
-  const stops = [[0,[224,92,92]],[30,[200,140,50]],[60,[80,120,80]],[80,[40,150,90]],[100,[63,187,137]]];
   const v = Math.max(0, Math.min(100, pct));
-  for (let i = 1; i < stops.length; i++) {
-    const [p0,c0] = stops[i-1], [p1,c1] = stops[i];
-    if (v <= p1) {
-      const t = (v-p0)/(p1-p0);
-      return `rgb(${Math.round(c0[0]+t*(c1[0]-c0[0]))},${Math.round(c0[1]+t*(c1[1]-c0[1]))},${Math.round(c0[2]+t*(c1[2]-c0[2]))})`;
-    }
+// 0% = red, 50% = yellow, 100% = green
+  const hue = (v / 100) * 120; // 0 (red) → 120 (green)
+  return `hsl(${hue}, 62%, 45%)`;
   }
-  return 'rgb(224,92,92)';
-}
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 function updateStats(rows) {
