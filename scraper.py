@@ -13,7 +13,7 @@ from playwright.async_api import async_playwright, TimeoutError as PlaywrightTim
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_URL        = "https://padelbeach-br.matchpoint.com.es/Booking/Grid.aspx"
-TARGET_LOCATION = "Padel (Leopoldina)"
+TARGET_LOCATION = "PADEL (LEOPOLDINA)"
 NUM_COURTS      = 3
 DAYS_AHEAD      = 7
 SLOT_HEIGHT_PX  = 35      # 1 time slot = 35px in the SVG
@@ -57,15 +57,17 @@ async def scrape_date(page, target_date: datetime) -> list[dict]:
     # ── 1. Navigate ────────────────────────────────────────────────────────────
     await page.goto(BASE_URL, wait_until="networkidle", timeout=30_000)
 
-  # ── 2. Dismiss cookie banner if present ────────────────────────────────────
+ # ── 2. Dismiss cookie banner ───────────────────────────────────────────────
     try:
-        await page.click("#ctl00_ButtonPermitirNecesarios", timeout=5_000)
-        await page.wait_for_load_state("networkidle", timeout=5_000)
+        await page.wait_for_selector("#ctl00_ButtonPermitirNecesarios",
+                                     state="visible", timeout=8_000)
+        await page.click("#ctl00_ButtonPermitirNecesarios")
+        await page.wait_for_load_state("networkidle", timeout=8_000)
         log.info("Cookie banner dismissed")
     except Exception:
-        pass
+        log.info("No cookie banner found, continuing")
 
-    # ── 3. Select location via JS (jQuery UI hides the real <select>) ──────────
+    # ── 3. Select location via JS ──────────────────────────────────────────────
     try:
         await page.wait_for_selector("#calendarios", timeout=15_000)
         await page.evaluate("""
