@@ -206,6 +206,7 @@ function buildHeatmap(rows) {
   if (!rows.length) { container.innerHTML = '<div class="empty">No data yet.</div>'; return; }
 
   const dates  = [...new Set(rows.map(r => r.court_date))].sort();
+  const last7Dates = dates.slice(-7);
   const courts = [1,2,3];
 
   // Compute avg pct per court × date
@@ -222,20 +223,28 @@ function buildHeatmap(rows) {
     map[parseInt(cid)][date] = vals.reduce((a,b) => a+b, 0) / vals.length;
   });
 
-  const cols = `auto ${dates.map(() => '1fr').join(' ')}`;
+  const cols = `auto ${last7Dates.map(() => '1fr').join(' ')} auto`;
   let html = `<div class="heatmap-grid" style="grid-template-columns:${cols}"><div></div>`;
-  dates.forEach(d => { html += `<div class="heatmap-date">${shortDate(d)}</div>`; });
+  last7Dates.forEach(d => { html += `<div class="heatmap-date">${shortDate(d)}</div>`; });
+  html += `<div class="heatmap-date">Avg 7d</div>`;
 
   courts.forEach(c => {
     const courtColors = { 1: 'var(--accent1)', 2: 'var(--accent2)', 3: 'var(--accent3)' };
     html += `<div class="court-label" style="color:${courtColors[c]}">Court ${c}</div>`;
-    dates.forEach(d => {
+    const vals = [];
+    last7Dates.forEach(d => {
       const pct = map[c][d];
       const bg  = heatColor(pct);
       const txt = pct != null ? pct.toFixed(0) + '%' : '—';
       const tc  = (pct ?? 0) > 50 ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)';
       html += `<div class="heatmap-cell" style="background:${bg};color:${tc}">${txt}</div>`;
+      if (pct != null) vals.push(pct);
     });
+    const avg = vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
+    const avgBg = heatColor(avg);
+    const avgTxt = avg != null ? avg.toFixed(0) + '%' : '—';
+    const avgTc = (avg ?? 0) > 50 ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.55)';
+    html += `<div class="heatmap-cell" style="background:${avgBg};color:${avgTc};font-weight:600">${avgTxt}</div>`;
   });
 
   container.innerHTML = html + '</div>';
